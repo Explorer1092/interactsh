@@ -1,6 +1,6 @@
 package options
 
-import "github.com/projectdiscovery/interactsh/pkg/server"
+import "github.com/Explorer1092/interactsh/pkg/server"
 
 type CLIServerOptions struct {
 	Config                   string

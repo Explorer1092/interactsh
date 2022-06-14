@@ -1,6 +1,7 @@
 # Build
 FROM golang:1.18.1-alpine AS build-env
 RUN apk add build-base
+RUN go mod tidy
 RUN go install -v github.com/Explorer1092/interactsh/cmd/interactsh-server@v1.0.6
 
 # Release
