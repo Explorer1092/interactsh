@@ -299,7 +299,7 @@ func main() {
 }
 
 func getPublicIP() string {
-	url := "https://api.ipify.org?format=text" // we are using a pulib IP API, we're using ipify here, below are some others
+	url := "https://ip.zip.ms/" // we are using a pulib IP API, we're using ipify here, below are some others
 
 	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
