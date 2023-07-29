@@ -32,9 +32,12 @@
 - AES encryption with zero logging
 - Automatic ACME based Wildcard TLS w/ Auto Renewal
 - DNS Entries for Cloud Metadata service
+- Dynamic HTTP Response control
 - Self-Hosted Interactsh Server
+- Multiple domain support **(self-hosted)**
 - NTLM/SMB/FTP/RESPONDER Listener **(self-hosted)**
 - Wildcard / Protected Interactions **(self-hosted)**
+- Customizable Index / File hosting **(self-hosted)**
 - Customizable Payload Length **(self-hosted)**
 - Custom SSL Certificate **(self-hosted)**
 
@@ -67,19 +70,31 @@ CONFIG:
    -sf, -session-file string                store/read from session file
 
 FILTER:
-   -dns-only   display only dns interaction in CLI output
-   -http-only  display only http interaction in CLI output
-   -smtp-only  display only smtp interactions in CLI output
+   -m, -match string[]   match interaction based on the specified pattern
+   -f, -filter string[]  filter interaction based on the specified pattern
+   -dns-only             display only dns interaction in CLI output
+   -http-only            display only http interaction in CLI output
+   -smtp-only            display only smtp interactions in CLI output
 
+UPDATE:
+   -up, -update                 update interactsh-client to latest version
+   -duc, -disable-update-check  disable automatic interactsh-client update check
+   
 OUTPUT:
-   -o string  output file to write interaction data
-   -json      write output in JSONL(ines) format
-   -v         display verbose interaction
+   -o string                         output file to write interaction data
+   -json                             write output in JSONL(ines) format
+   -ps, -payload-store               enable storing generated interactsh payload to file
+   -psf, -payload-store-file string  store generated interactsh payloads to given file (default "interactsh_payload.txt")
+   -v                                display verbose interaction
+
+DEBUG:
+   -version            show version of the project
+   -health-check, -hc  run diagnostic check up
 ```
 
 ## Interactsh CLI Client
 
-Interactsh Cli client requires **go1.17+** to install successfully. Run the following command to get the repo - 
+Interactsh Cli client requires **go1.20+** to install successfully. Run the following command to get the repo - 
 
 ```sh
 go install -v github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest
@@ -276,7 +291,7 @@ Interactsh can be used with OWASP ZAP via the [OAST add-on for ZAP](https://www.
 
 # Interactsh Server
 
-Interactsh server runs multiple services and captures all the incoming requests. To host an instance of interactsh-server, you are required to have the follow requirements:
+Interactsh server runs multiple services and captures all the incoming requests. To host an instance of **interactsh-server**, you are required to setup:
 
 1. Domain name with custom **host names** and **nameservers**.
 2. Basic droplet running 24/7 in the background.
@@ -295,20 +310,37 @@ Usage:
 
 Flags:
 INPUT:
-   -d, -domain string                       configured domain to use with interactsh server
+   -d, -domain string[]                     single/multiple configured domain to use for server
    -ip string                               public ip address to use for interactsh server
    -lip, -listen-ip string                  public ip address to listen on (default "0.0.0.0")
    -e, -eviction int                        number of days to persist interaction data in memory (default 30)
+   -ne, -no-eviction                        disable periodic data eviction from memory
    -a, -auth                                enable authentication to server using random generated token
    -t, -token string                        enable authentication to server using given token
-   -acao-url string                         origin url to send in acao header (required to use web-client)
+   -acao-url string                         origin url to send in acao header to use web-client) (default "*")
    -sa, -skip-acme                          skip acme registration (certificate checks/handshake + TLS protocols will be disabled)
    -se, -scan-everywhere                    scan canary token everywhere
    -cidl, -correlation-id-length int        length of the correlation id preamble (default 20)
    -cidn, -correlation-id-nonce-length int  length of the correlation id nonce (default 13)
    -cert string                             custom certificate path
    -privkey string                          custom private key path
+   -oih, -origin-ip-header string           HTTP header containing origin ip (interactsh behind a reverse proxy)
 
+CONFIG:
+   -config string               flag configuration file (default "$HOME/.config/interactsh-server/config.yaml")
+   -dr, -dynamic-resp           enable setting up arbitrary response data
+   -cr, -custom-records string  custom dns records YAML file for DNS server
+   -hi, -http-index string      custom index file for http server
+   -hd, -http-directory string  directory with files to serve with http server
+   -ds, -disk                   disk based storage
+   -dsp, -disk-path string      disk storage path
+   -csh, -server-header string  custom value of Server header in response
+   -dv, -disable-version        disable publishing interactsh version in response header
+
+UPDATE:
+   -up, -update                 update interactsh-server to latest version
+   -duc, -disable-update-check  disable automatic interactsh-server update check
+   
 SERVICES:
    -dns-port int           port to use for dns service (default 53)
    -http-port int          port to use for http service (default 80)
@@ -327,7 +359,12 @@ SERVICES:
    -ftp-dir string         ftp directory - temporary if not specified
 
 DEBUG:
-   -debug  start interactsh server in debug mode
+   -version            show version of the project
+   -debug              start interactsh server in debug mode
+   -ep, -enable-pprof  enable pprof debugging server
+   -health-check, -hc  run diagnostic check up
+   -metrics            enable metrics endpoint
+   -v, -verbose        display verbose interaction
 ```
 
 We are using GoDaddy for domain name and DigitalOcean droplet for the server, a basic $5 droplet should be sufficient to run self-hosted Interactsh server. If you are not using GoDaddy, follow your registrar's process for creating / updating DNS entries.
@@ -399,7 +436,180 @@ interactsh-server -domain interact.sh
 [DNS] Listening on UDP 46.101.25.250:53
 ```
 
+## Interactsh Server with Multiple Domain
+
+Multiple domain names can be given in the same way as above to run the same interactsh server across multiple **configured domains**.
+
+```console
+interactsh-server -d oast.pro,oast.me
+
+    _       __                       __       __
+   (_)___  / /____  _________ ______/ /______/ /_
+  / / __ \/ __/ _ \/ ___/ __ '/ ___/ __/ ___/ __ \
+ / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /
+/_/_/ /_/\__/\___/_/   \__,_/\___/\__/____/_/ /_/ 1.0.5
+
+                projectdiscovery.io
+
+[INF] Loading existing SSL Certificate for:  [*.oast.pro, oast.pro]
+[INF] Loading existing SSL Certificate for:  [*.oast.me, oast.me]
+[INF] Listening with the following services:
+[HTTPS] Listening on TCP 46.101.25.250:443
+[HTTP] Listening on TCP 46.101.25.250:80
+[SMTPS] Listening on TCP 46.101.25.250:587
+[LDAP] Listening on TCP 46.101.25.250:389
+[SMTP] Listening on TCP 46.101.25.250:25
+[DNS] Listening on TCP 46.101.25.250:53
+[DNS] Listening on UDP 46.101.25.250:53
+```
+
+<table>
+<td>
+
+**Note:**
+
+While running interactsh server on **Cloud VM**'s like Amazon EC2, Goolge Cloud Platform (GCP), it is required to update the security rules to allow **"all traffic"** for inbound connections.
+
+</td>
+</table>
+
 There are more useful capabilities supported by `interactsh-server` that are not enabled by default and are intended to be used only by **self-hosted** servers.
+
+## Interactsh Server behind a reverse proxy
+
+`interactsh-server` might require custom ports for services if the default ones are already busy. If this is the case but still default ports are required as part of the payload, it's possible to configure `interactsh-server` behind a reverse proxy, by port-forwarding HTTP/TCP/UDP based services via `http/stream` proxy directive (`proxy_pass`).
+
+## Nginx
+
+Assuming that `interactsh-server` essential services run on the following ports:
+
+- HTTP: 8080/TCP
+- HTTPS: 8440/TCP
+- SMTP: 8025/TCP
+- DNS: 8053/UDP
+- DNS: 8053/TCP
+
+The nginx configuration file to forward the traffic would look like the following one:
+
+```conf
+# http/https
+http {
+   server {
+      listen 443 ssl;
+      server_name mysite.com;
+      ssl_certificate /etc/nginx/interactsh.pem;
+      ssl_certificate_key /etc/nginx/interactsh.key;
+
+      location / {
+         proxy_pass https://interachsh.mysite.com:80/;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+         proxy_set_header X-Forwarded-Proto $scheme;
+      }        
+   }
+}
+
+stream {
+   # smtp
+   server {
+      listen 25;
+      proxy_pass interachsh.mysite.com:8025;
+   }
+
+   # dns
+   server {
+      listen 53;
+      proxy_pass interachsh.mysite.com:8053;
+   }
+   server {
+      listen 53 udp;
+      proxy_pass interachsh.mysite.com:8053;
+   }
+}
+```
+
+**Configured Domains**
+
+```console
+interactsh-server -d oast.pro,oast.me
+
+    _       __                       __       __
+   (_)___  / /____  _________ ______/ /______/ /_
+  / / __ \/ __/ _ \/ ___/ __ '/ ___/ __/ ___/ __ \
+ / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /
+/_/_/ /_/\__/\___/_/   \__,_/\___/\__/____/_/ /_/ 1.0.5
+
+                projectdiscovery.io
+
+[INF] Loading existing SSL Certificate for:  [*.oast.pro, oast.pro]
+[INF] Loading existing SSL Certificate for:  [*.oast.me, oast.me]
+[INF] Listening with the following services:
+[HTTPS] Listening on TCP 46.101.25.250:443
+[HTTP] Listening on TCP 46.101.25.250:80
+[SMTPS] Listening on TCP 46.101.25.250:587
+[LDAP] Listening on TCP 46.101.25.250:389
+[SMTP] Listening on TCP 46.101.25.250:25
+[DNS] Listening on TCP 46.101.25.250:53
+[DNS] Listening on UDP 46.101.25.250:53
+```
+
+## Custom Server Index
+
+Index page for http server can be customized while running custom interactsh server using `-http-index` flag.
+
+```console
+interactsh-server -d hackwithautomation.com -http-index banner.html
+```
+
+`{DOMAIN}` placeholder is also supported in index file to replace with server domain name.
+
+![image](https://user-images.githubusercontent.com/8293321/179397016-f6ee12e0-5b0b-42b6-83e7-f0972a804655.png)
+
+
+## Static File Hosting
+
+Interactsh http server optionally enables file hosting to help in security testing. This capability can be used with a self-hosted server to serve files for common payloads for **XSS, XXE, RCE** and other attacks.
+
+To use this feature, `-http-directory` flag can be used which accepts diretory as input and files are served under `/s/` direcotry.
+
+```console
+interactsh-server -d hackwithautomation.com -http-directory ./paylods
+```
+
+![image](https://user-images.githubusercontent.com/8293321/179396480-d5ff8399-8b91-48aa-b21f-c67e40e80945.png)
+
+## Dynamic HTTP Response
+
+Interactsh http server optionally enables responding with dynamic HTTP response by using query parameters. This feature can be enabled by using `-dr` or `-dynamic-resp` flag.
+
+The following query parameter names are supported - `body`, `header`, `status` and `delay`. Multiple `header` parameters can be specified to set multiple headers. 
+
+- **body** (response body)
+- **header** (response header)
+- **status** (response status code)
+- **delay** (response time)
+
+```console
+curl -i 'https://hackwithautomation.com/x?status=307&body=this+is+example+body&delay=1&header=header1:value1&header=header1:value12'
+
+HTTP/2 307 
+header1: value1
+header1: value12
+server: hackwithautomation.com
+x-interactsh-version: 1.0.7
+content-type: text/plain; charset=utf-8
+content-length: 20
+date: Tue, 13 Sep 2022 12:31:05 GMT
+
+this is example body
+```
+
+> **Note**:
+
+- Dynamic HTTP Response feature is disabled as default.
+- By design, this feature lets anyone run client-side code / redirects using your interactsh domain / server
+- Using this option with an isolated domain is recommended to **avoid security impact** on associated root/subdomains.
 
 ## Wildcard Interaction
 
@@ -495,8 +705,8 @@ interactsh-client -s hackwithautomation.com -cidl 4 -cidn 6
 [INF] c8rf4e8xm4.hackwithautomation.com
 ```
 
-
 ## Custom SSL Certificate
+
 The [certmagic](https://github.com/caddyserver/certmagic) library is used by default by interactsh server to produce wildcard certificates for requested domain in an automatic way. To use your own SSL certificate with self-hosted interactsh server, `cert` and `privkey` flag can be used to provider required certificate files.
 
 **Note:** To utilize all of the functionality of the SSL protocol, a wildcard certificate is mandatory.
@@ -523,48 +733,63 @@ interactsh-server -d hackwithautomation.com -cert hackwithautomation.com.crt -pr
 [DNS] Listening on UDP 157.230.223.165:53
 ```
 
-# Interactsh Integration
+## Supported Protocols
+
+### FTP
+
+FTP support can be enabled with the `-ftp` flag and is recommended for self-hosted instances only. The FTP agent simulates a fully-functional FTP server agent with authentication that captures authentications with every file operation. By default, the agent listens on port 21 (this can be changed with the `-ftp-port` flag) and lists in read-only mode the content of the OS default temporary directory (customizable with the `-ftp-dir` option).
+Example of starting the FTP daemon and capturing a login interaction:
+
+```console
+$ sudo go run . -ftp -skip-acme -debug -domain localhost
+...
+[INF] Outbound IP: 192.168.1.16
+[INF] Client Token: 6dc07e4a76c3d5e58e4bea13ce073dc403499b128c62397aff7b934a6e4822e3
+[INF] Listening with the following services:
+[DNS] Listening on TCP 192.168.1.16:53
+[SMTP] Listening on TCP 192.168.1.16:25
+[HTTP] Listening on TCP 192.168.1.16:80
+[FTP] Listening on TCP 192.168.1.16:21
+[DNS] Listening on UDP 192.168.1.16:53
+[LDAP] Listening on TCP 192.168.1.16:389
+[DBG] FTP Interaction: 
+{"protocol":"ftp","unique-id":"","full-id":"","raw-request":"USER test\ntest logging in","remote-address":"127.0.0.1:51564","timestamp":"2022-09-29T00:49:42.212323+02:00"}
+```
+
+## External Supported Protocols
+
+### SMB
+
+The `-smb` flag enables the Samba protocol (only for self-hosted instances). The samba protocol uses [impacket](https://github.com/SecureAuthCorp/impacket) `smbserver` class to simulate a samba daemon share listening on port `445` unless changed by the `-smb-port` flag. When enabled, interactsh executes under the hoods the script `smb_server.py`. Hence Python3 and impacket dependencies are required.
+Example of enabling the samba server:
+
+```console
+$ sudo interactsh-server -smb -skip-acme -debug -domain localhost
+```
+
+### Responder
+[Responder](https://github.com/lgandx/Responder) is wrapped in a docker container exposing various service ports via docker port forwarding. The interactions are retrieved by monitoring the shared log file `Responder-Session.log` in the temp folder. To use it on a self-hosted instance, it's necessary first to build the docker container and tag it as `interactsh`(docker daemon must be configured correctly and with port forwarding capabilities):
+
+```console
+docker build . -t interactsh
+```
+
+Then run the service with:
+
+```console
+$ sudo interactsh-server -responder -d localhost
+```
+
+On default settings, the daemon listens on the following ports:
+
+- UDP: 137, 138, 1434
++ TCP: 21 (might collide with FTP daemon if used), 110, 135, 139, 389, 445, 1433, 3141, 3128
+
+## Interactsh Integration
 
 ### Use as library
 
-The below example uses interactsh client library to get external interactions for a generated URL by making a http request to the URL.
-
-```go
-package main
-
-import (
-	"fmt"
-	"net/http"
-	"time"
-
-	"github.com/projectdiscovery/interactsh/pkg/client"
-	"github.com/projectdiscovery/interactsh/pkg/server"
-)
-
-func main() {
-	client, err := client.New(client.DefaultOptions)
-	if err != nil {
-		panic(err)
-	}
-	defer client.Close()
-
-	client.StartPolling(time.Duration(1*time.Second), func(interaction *server.Interaction) {
-		fmt.Printf("Got Interaction: %v => %v\n", interaction.Protocol, interaction.FullId)
-	})
-	defer client.StopPolling()
-
-	URL := client.URL()
-
-	resp, err := http.Get("https://" + URL)
-	if err != nil {
-		panic(err)
-	}
-	resp.Body.Close()
-
-	fmt.Printf("Got URL: %v => %v\n", URL, resp)
-	time.Sleep(5 * time.Second)
-}
-```
+The [examples](examples/) uses interactsh client library to get external interactions for a generated URL by making a http request to the URL.
 
 ### Nuclei - OAST
 

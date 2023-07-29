@@ -1,20 +1,24 @@
 package options
 
-import "github.com/Explorer1092/interactsh/pkg/server"
+import (
+	"github.com/projectdiscovery/goflags"
+	"github.com/projectdiscovery/interactsh/pkg/server"
+)
 
 type CLIServerOptions struct {
 	Config                   string
 	Version                  bool
 	Debug                    bool
-	Domain                   string
+	Domains                  goflags.StringSlice
 	DnsPort                  int
 	IPAddress                string
 	ListenIP                 string
 	HttpPort                 int
 	HttpsPort                int
-	Hostmaster               string
+	Hostmasters              []string
 	LdapWithFullLogger       bool
 	Eviction                 int
+	NoEviction               bool
 	Responder                bool
 	Smb                      bool
 	SmbPort                  int
@@ -25,27 +29,40 @@ type CLIServerOptions struct {
 	LdapPort                 int
 	Ftp                      bool
 	Auth                     bool
+	HTTPIndex                string
+	HTTPDirectory            string
 	Token                    string
 	OriginURL                string
 	RootTLD                  bool
 	FTPDirectory             string
 	SkipAcme                 bool
+	DynamicResp              bool
 	CorrelationIdLength      int
 	CorrelationIdNonceLength int
 	ScanEverywhere           bool
 	CertificatePath          string
+	CustomRecords            string
 	PrivateKeyPath           string
+	OriginIPHeader           string
+	DiskStorage              bool
+	DiskStoragePath          string
+	EnablePprof              bool
+	EnableMetrics            bool
+	Verbose                  bool
+	DisableUpdateCheck       bool
+	NoVersionHeader          bool
+	HeaderServer             string
 }
 
 func (cliServerOptions *CLIServerOptions) AsServerOptions() *server.Options {
 	return &server.Options{
-		Domain:                   cliServerOptions.Domain,
+		Domains:                  cliServerOptions.Domains,
 		DnsPort:                  cliServerOptions.DnsPort,
 		IPAddress:                cliServerOptions.IPAddress,
 		ListenIP:                 cliServerOptions.ListenIP,
 		HttpPort:                 cliServerOptions.HttpPort,
 		HttpsPort:                cliServerOptions.HttpsPort,
-		Hostmaster:               cliServerOptions.Hostmaster,
+		Hostmasters:              cliServerOptions.Hostmasters,
 		SmbPort:                  cliServerOptions.SmbPort,
 		SmtpPort:                 cliServerOptions.SmtpPort,
 		SmtpsPort:                cliServerOptions.SmtpsPort,
@@ -53,7 +70,11 @@ func (cliServerOptions *CLIServerOptions) AsServerOptions() *server.Options {
 		FtpPort:                  cliServerOptions.FtpPort,
 		LdapPort:                 cliServerOptions.LdapPort,
 		Auth:                     cliServerOptions.Auth,
+		HTTPIndex:                cliServerOptions.HTTPIndex,
+		HTTPDirectory:            cliServerOptions.HTTPDirectory,
 		Token:                    cliServerOptions.Token,
+		Version:                  Version,
+		DynamicResp:              cliServerOptions.DynamicResp,
 		OriginURL:                cliServerOptions.OriginURL,
 		RootTLD:                  cliServerOptions.RootTLD,
 		FTPDirectory:             cliServerOptions.FTPDirectory,
@@ -61,6 +82,13 @@ func (cliServerOptions *CLIServerOptions) AsServerOptions() *server.Options {
 		CorrelationIdNonceLength: cliServerOptions.CorrelationIdNonceLength,
 		ScanEverywhere:           cliServerOptions.ScanEverywhere,
 		CertificatePath:          cliServerOptions.CertificatePath,
+		CustomRecords:            cliServerOptions.CustomRecords,
 		PrivateKeyPath:           cliServerOptions.PrivateKeyPath,
+		OriginIPHeader:           cliServerOptions.OriginIPHeader,
+		DiskStorage:              cliServerOptions.DiskStorage,
+		DiskStoragePath:          cliServerOptions.DiskStoragePath,
+		EnableMetrics:            cliServerOptions.EnableMetrics,
+		NoVersionHeader:          cliServerOptions.NoVersionHeader,
+		HeaderServer:             cliServerOptions.HeaderServer,
 	}
 }

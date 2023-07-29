@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Explorer1092/interactsh/pkg/server/acme"
-	"github.com/Explorer1092/interactsh/pkg/storage"
-	"github.com/Explorer1092/stringsutil"
+	"github.com/projectdiscovery/interactsh/pkg/server/acme"
+	"github.com/projectdiscovery/interactsh/pkg/storage"
+	stringsutil "github.com/projectdiscovery/utils/strings"
 )
 
 // Interaction is an interaction received to the server.
@@ -28,13 +28,14 @@ type Interaction struct {
 	// RemoteAddress is the remote address for interaction
 	RemoteAddress string `json:"remote-address"`
 	// Timestamp is the timestamp for the interaction
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time           `json:"timestamp"`
+	AsnInfo   []map[string]string `json:"asninfo,omitempty"`
 }
 
 // Options contains configuration options for the servers
 type Options struct {
-	// Domain is the domain for the instance.
-	Domain string
+	// Domains is the list domains for the instance.
+	Domains []string
 	// IPAddress is the IP address of the current server.
 	IPAddress string
 	// ListenIP is the IP address to listen servers on
@@ -58,11 +59,15 @@ type Options struct {
 	// FtpPort is the port to listen Ftp server on
 	LdapPort int
 	// Hostmaster is the hostmaster email for the server.
-	Hostmaster string
+	Hostmasters []string
 	// Storage is a storage for interaction data storage
-	Storage *storage.Storage
+	Storage storage.Storage
 	// Auth requires client to authenticate
 	Auth bool
+	// HTTPIndex is the http index file for server
+	HTTPIndex string
+	// HTTPDirectory is the directory for interact server
+	HTTPDirectory string
 	// Token required to retrieve interactions
 	Token string
 	// Enable root tld interactions
@@ -81,9 +86,30 @@ type Options struct {
 	CertificatePath string
 	// Private Key Path
 	PrivateKeyPath string
+	// CustomRecords is a file containing custom DNS records
+	CustomRecords string
+	// HTTP header containing origin IP
+	OriginIPHeader string
+	// Version is the version of interactsh server
+	Version string
+	// DiskStorage enables storing interactions on disk
+	DiskStorage bool
+	// DiskStoragePath defines the disk storage location
+	DiskStoragePath string
+	// DynamicResp enables dynamic HTTP response
+	DynamicResp bool
+	// EnableMetrics enables metrics endpoint
+	EnableMetrics bool
+	// ServerToken hide server version in HTTP response X-Interactsh-Version header
+	NoVersionHeader bool
+	// HeaderServer use custom string in HTTP response Server header instead of domain
+	HeaderServer string
 
 	ACMEStore *acme.Provider
+	Stats     *Metrics
+	OnResult  OnResultCallback
 }
+type OnResultCallback func(out interface{})
 
 func (options *Options) GetIdLength() int {
 	return options.CorrelationIdLength + options.CorrelationIdNonceLength

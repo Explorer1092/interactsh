@@ -2,28 +2,36 @@ package main
 
 import (
 	"bytes"
-	jsonpkg "encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
-	"github.com/projectdiscovery/fileutil"
-	"github.com/projectdiscovery/folderutil"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/gologger"
+	"github.com/projectdiscovery/gologger/levels"
+	"github.com/projectdiscovery/interactsh/internal/runner"
 	"github.com/projectdiscovery/interactsh/pkg/client"
 	"github.com/projectdiscovery/interactsh/pkg/options"
 	"github.com/projectdiscovery/interactsh/pkg/server"
 	"github.com/projectdiscovery/interactsh/pkg/settings"
+	fileutil "github.com/projectdiscovery/utils/file"
+	folderutil "github.com/projectdiscovery/utils/folder"
+	updateutils "github.com/projectdiscovery/utils/update"
 )
 
 var (
+	healthcheck           bool
 	defaultConfigLocation = filepath.Join(folderutil.HomeDirOrDefault("."), ".config/interactsh-client/config.yaml")
 )
 
 func main() {
+	gologger.DefaultLogger.SetMaxLevel(levels.LevelVerbose)
+
 	defaultOpts := client.DefaultOptions
 	cliOptions := &options.CLIClientOptions{}
 
@@ -43,19 +51,35 @@ func main() {
 		flagSet.IntVarP(&cliOptions.CorrelationIdLength, "correlation-id-length", "cidl", settings.CorrelationIdLengthDefault, "length of the correlation id preamble"),
 		flagSet.IntVarP(&cliOptions.CorrelationIdNonceLength, "correlation-id-nonce-length", "cidn", settings.CorrelationIdNonceLengthDefault, "length of the correlation id nonce"),
 		flagSet.StringVarP(&cliOptions.SessionFile, "session-file", "sf", "", "store/read from session file"),
+		flagSet.DurationVarP(&cliOptions.KeepAliveInterval, "keep-alive-interval", "kai", time.Minute, "keep alive interval"),
 	)
 
 	flagSet.CreateGroup("filter", "Filter",
+		flagSet.StringSliceVarP(&cliOptions.Match, "match", "m", nil, "match interaction based on the specified pattern", goflags.FileCommaSeparatedStringSliceOptions),
+		flagSet.StringSliceVarP(&cliOptions.Filter, "filter", "f", nil, "filter interaction based on the specified pattern", goflags.FileCommaSeparatedStringSliceOptions),
 		flagSet.BoolVar(&cliOptions.DNSOnly, "dns-only", false, "display only dns interaction in CLI output"),
 		flagSet.BoolVar(&cliOptions.HTTPOnly, "http-only", false, "display only http interaction in CLI output"),
 		flagSet.BoolVar(&cliOptions.SmtpOnly, "smtp-only", false, "display only smtp interactions in CLI output"),
+		flagSet.BoolVar(&cliOptions.Asn, "asn", false, " include asn information of remote ip in json output"),
+	)
+
+	flagSet.CreateGroup("update", "Update",
+		flagSet.CallbackVarP(options.GetUpdateCallback("interactsh-client"), "update", "up", "update interactsh-client to latest version"),
+		flagSet.BoolVarP(&cliOptions.DisableUpdateCheck, "disable-update-check", "duc", false, "disable automatic interactsh-client update check"),
 	)
 
 	flagSet.CreateGroup("output", "Output",
 		flagSet.StringVar(&cliOptions.Output, "o", "", "output file to write interaction data"),
 		flagSet.BoolVar(&cliOptions.JSON, "json", false, "write output in JSONL(ines) format"),
+		flagSet.BoolVarP(&cliOptions.StorePayload, "payload-store", "ps", false, "write generated interactsh payload to file"),
+		flagSet.StringVarP(&cliOptions.StorePayloadFile, "payload-store-file", "psf", settings.StorePayloadFileDefault, "store generated interactsh payloads to given file"),
+
 		flagSet.BoolVar(&cliOptions.Verbose, "v", false, "display verbose interaction"),
+	)
+
+	flagSet.CreateGroup("debug", "Debug",
 		flagSet.BoolVar(&cliOptions.Version, "version", false, "show version of the project"),
+		flagSet.BoolVarP(&healthcheck, "hc", "health-check", false, "run diagnostic check up"),
 	)
 
 	if err := flagSet.Parse(); err != nil {
@@ -64,9 +88,25 @@ func main() {
 
 	options.ShowBanner()
 
+	if healthcheck {
+		cfgFilePath, _ := flagSet.GetConfigFilePath()
+		gologger.Print().Msgf("%s\n", runner.DoHealthCheck(cfgFilePath))
+		os.Exit(0)
+	}
 	if cliOptions.Version {
 		gologger.Info().Msgf("Current Version: %s\n", options.Version)
 		os.Exit(0)
+	}
+
+	if !cliOptions.DisableUpdateCheck {
+		latestVersion, err := updateutils.GetToolVersionCallback("interactsh-client", options.Version)()
+		if err != nil {
+			if cliOptions.Verbose {
+				gologger.Error().Msgf("interactsh version check failed: %v", err.Error())
+			}
+		} else {
+			gologger.Info().Msgf("Current interactsh version %v %v", options.Version, updateutils.GetVersionDescription(options.Version, latestVersion))
+		}
 	}
 
 	if cliOptions.Config != defaultConfigLocation {
@@ -102,15 +142,47 @@ func main() {
 		gologger.Fatal().Msgf("Could not create client: %s\n", err)
 	}
 
+	interactshURLs := generatePayloadURL(cliOptions.NumberOfPayloads, client)
+
 	gologger.Info().Msgf("Listing %d payload for OOB Testing\n", cliOptions.NumberOfPayloads)
-	for i := 0; i < cliOptions.NumberOfPayloads; i++ {
-		gologger.Info().Msgf("%s\n", client.URL())
+	for _, interactshURL := range interactshURLs {
+		gologger.Info().Msgf("%s\n", interactshURL)
+	}
+
+	if cliOptions.StorePayload && cliOptions.StorePayloadFile != "" {
+		if err := os.WriteFile(cliOptions.StorePayloadFile, []byte(strings.Join(interactshURLs, "\n")), 0644); err != nil {
+			gologger.Fatal().Msgf("Could not write to payload output file: %s\n", err)
+		}
 	}
 
 	// show all interactions
 	noFilter := !cliOptions.DNSOnly && !cliOptions.HTTPOnly && !cliOptions.SmtpOnly
 
-	client.StartPolling(time.Duration(cliOptions.PollInterval)*time.Second, func(interaction *server.Interaction) {
+	var matcher *regexMatcher
+	var filter *regexMatcher
+	if len(cliOptions.Match) > 0 {
+		if matcher, err = newRegexMatcher(cliOptions.Match); err != nil {
+			gologger.Fatal().Msgf("Could not compile matchers: %s\n", err)
+		}
+	}
+	if len(cliOptions.Filter) > 0 {
+		if filter, err = newRegexMatcher(cliOptions.Filter); err != nil {
+			gologger.Fatal().Msgf("Could not compile filter: %s\n", err)
+		}
+	}
+
+	err = client.StartPolling(time.Duration(cliOptions.PollInterval)*time.Second, func(interaction *server.Interaction) {
+		if matcher != nil && !matcher.match(interaction.FullId) {
+			return
+		}
+		if filter != nil && filter.match(interaction.FullId) {
+			return
+		}
+
+		if cliOptions.Asn {
+			_ = client.TryGetAsnInfo(interaction)
+		}
+
 		if !cliOptions.JSON {
 			builder := &bytes.Buffer{}
 
@@ -165,7 +237,7 @@ func main() {
 				}
 			}
 		} else {
-			b, err := jsonpkg.Marshal(interaction)
+			b, err := jsoniter.Marshal(interaction)
 			if err != nil {
 				gologger.Error().Msgf("Could not marshal json output: %s\n", err)
 			} else {
@@ -178,6 +250,9 @@ func main() {
 			}
 		}
 	})
+	if err != nil {
+		gologger.Error().Msgf(err.Error())
+	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
@@ -185,7 +260,7 @@ func main() {
 		if cliOptions.SessionFile != "" {
 			_ = client.SaveSessionTo(cliOptions.SessionFile)
 		}
-		client.StopPolling()
+		_ = client.StopPolling()
 		// whether the session is saved/loaded it shouldn't be destroyed {
 		if cliOptions.SessionFile == "" {
 			client.Close()
@@ -194,10 +269,43 @@ func main() {
 	}
 }
 
+func generatePayloadURL(numberOfPayloads int, client *client.Client) []string {
+	interactshURLs := make([]string, numberOfPayloads)
+	for i := 0; i < numberOfPayloads; i++ {
+		interactshURLs[i] = client.URL()
+	}
+	return interactshURLs
+}
+
 func writeOutput(outputFile *os.File, builder *bytes.Buffer) {
 	if outputFile != nil {
 		_, _ = outputFile.Write(builder.Bytes())
 		_, _ = outputFile.Write([]byte("\n"))
 	}
 	gologger.Silent().Msgf("%s", builder.String())
+}
+
+type regexMatcher struct {
+	items []*regexp.Regexp
+}
+
+func newRegexMatcher(items []string) (*regexMatcher, error) {
+	matcher := &regexMatcher{}
+	for _, item := range items {
+		if compiled, err := regexp.Compile(item); err != nil {
+			return nil, err
+		} else {
+			matcher.items = append(matcher.items, compiled)
+		}
+	}
+	return matcher, nil
+}
+
+func (m *regexMatcher) match(item string) bool {
+	for _, regex := range m.items {
+		if regex.MatchString(item) {
+			return true
+		}
+	}
+	return false
 }
